@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12302B">
+<title>Pemindai Absensi</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<style>
+:root{--side:#12302B;--ink:#16231F;--muted:#5E6B66;--line:#DDE3DC;--hadir:#1F7A6D;--terlambat:#D9902B;--alpa:#C2432E;--belum:#8A948F}
+*{box-sizing:border-box;margin:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--side);color:#fff;font-size:16px}
+button,input{font:inherit}
+.wrap{min-height:100%;display:flex;flex-direction:column}
+/* Masuk */
+.login{margin:auto;width:min(380px,92vw);background:#fff;color:var(--ink);border-radius:14px;padding:28px 24px}
+.login h1{font-size:22px;margin-bottom:4px}.login p{color:var(--muted);margin-bottom:16px}
+.fi{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;font-size:14px;font-weight:600}
+.fi input{border:1px solid #C9D2CA;border-radius:8px;padding:11px 12px;height:46px;font-weight:400}
+.btn{border:0;border-radius:9px;background:var(--hadir);color:#fff;font-weight:600;padding:12px 16px;width:100%;height:48px;cursor:pointer}
+.btn:disabled{opacity:.6}
+.btn.ghost{background:rgba(255,255,255,.12);width:auto;height:40px;padding:0 14px;font-weight:500}
+.err{background:#FDF1EE;border:1px solid #E7B5AB;color:#8C2B1A;border-radius:8px;padding:9px 12px;font-size:14px;margin-bottom:14px}
+.setup{margin-top:14px;font-size:13px;color:var(--muted)}
+.setup input{width:100%;margin-top:6px;border:1px solid #C9D2CA;border-radius:8px;padding:9px;font-size:13px}
+/* Pemindai */
+header{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 14px 10px}
+header b{flex:1;line-height:1.2;min-width:0}header small{display:block;font-weight:400;opacity:.75;font-size:12.5px}
+.cam{position:relative;background:#000;aspect-ratio:1/1;max-height:52vh;width:100%;overflow:hidden}
+.cam video{width:100%;height:100%;object-fit:cover}
+.frame{position:absolute;inset:18% 18%;border:3px solid rgba(255,255,255,.85);border-radius:16px;box-shadow:0 0 0 999px rgba(0,0,0,.35);pointer-events:none}
+.hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:14px;text-shadow:0 1px 3px #000}
+.result{margin:12px 14px;border-radius:14px;padding:16px;background:rgba(255,255,255,.1);min-height:96px;display:flex;flex-direction:column;justify-content:center}
+.result.ok{background:var(--hadir)}.result.late{background:var(--terlambat);color:#1c1200}.result.bad{background:var(--alpa)}
+.result .st{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.9}
+.result .nm{font-size:24px;font-weight:700;line-height:1.2}.result .sb{opacity:.9}
+.hist{flex:1;margin:0 14px 14px;background:#fff;color:var(--ink);border-radius:14px;padding:6px 14px;overflow:auto;min-height:120px}
+.hist h2{font-size:14px;color:var(--muted);padding:10px 0 4px}
+.hist li{list-style:none;display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:15px}
+.hist li:first-of-type{border-top:0}
+.hist time{color:var(--muted);width:46px;font-variant-numeric:tabular-nums}.hist span.n{flex:1;min-width:0}
+.pill{font-size:12.5px;font-weight:700;padding:2px 10px;border-radius:99px;color:#fff;background:var(--c)}
+.nocam{padding:24px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<form class="login" id="loginBox" hidden>
+  <h1>Pemindai Absensi</h1>
+  <p>Masuk dengan akun petugas (guru piket).</p>
+  <div class="err" id="loginErr" role="alert" hidden></div>
+  <label class="fi">Username<input id="u" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+  <label class="fi">Kata sandi<input id="p" type="password" autocomplete="current-password" required></label>
+  <button class="btn" id="loginBtn" type="submit">Masuk</button>
+  <div class="setup" id="setup" hidden>URL Web App belum diisi di file ini. Tempel di sini (disimpan di perangkat ini):<input id="apiIn" placeholder="https://script.google.com/macros/s/.../exec"></div>
+</form>
+
+<section id="app" hidden style="display:flex;flex-direction:column;flex:1">
+  <header><b id="who">Pemindai<small id="sch"></small></b><button class="btn ghost" id="flip" hidden>Ganti kamera</button><button class="btn ghost" id="out">Keluar</button></header>
+  <div class="cam"><video id="v" playsinline muted></video><div class="frame"></div><div class="hint" id="hint">Arahkan kamera ke QR pada kartu siswa</div></div>
+  <div class="result" id="res" aria-live="assertive"><div class="st">Siap memindai</div><div class="sb">Hasil pemindaian tampil di sini.</div></div>
+  <div class="hist"><h2>Hasil terbaru</h2><ul id="hist"></ul></div>
+</section>
+</div>
+<canvas id="cv" hidden></canvas>
+
+<script>
+/* ===== ISI URL WEB APP APPS SCRIPT DI SINI (hasil Deploy > Web app), lalu unggah ke GitHub Pages ===== */
+var API_URL = '';
+/* ================================================================================================== */
+
+var TOKEN=null, stream=null, facing='environment', busy=false, last={p:'',t:0}, loop=null, ctxAudio=null;
+function $(id){return document.getElementById(id);}
+function api(){ try{return API_URL||localStorage.getItem('asd_api')||'';}catch(e){return API_URL;} }
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+function call(fn,args){
+  var url=api(); if(!url) return Promise.reject(new Error('URL Web App belum diisi.'));
+  var ac=new AbortController(), t=setTimeout(function(){ac.abort();},20000);
+  return fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn:fn,args:args}),signal:ac.signal})
+   .then(function(r){clearTimeout(t);return r.json();})
+   .then(function(j){ if(!j.ok) throw new Error(j.error||'Terjadi kesalahan.'); return j.data; })
+   .catch(function(e){clearTimeout(t); if(e.name==='AbortError') throw new Error('Koneksi lambat. Coba pindai lagi.'); if(e instanceof TypeError) throw new Error('Tidak ada koneksi internet atau URL Web App salah.'); throw e;});
+}
+
+/* ---------- Suara dan getar ---------- */
+function beep(freq,ms){
+  try{ ctxAudio=ctxAudio||new (window.AudioContext||window.webkitAudioContext)();
+    var o=ctxAudio.createOscillator(),g=ctxAudio.createGain();o.frequency.value=freq;o.connect(g);g.connect(ctxAudio.destination);g.gain.value=.2;o.start();setTimeout(function(){o.stop();},ms);}catch(e){}
+}
+function feedback(kind){
+  if(kind==='ok'){beep(880,140);if(navigator.vibrate)navigator.vibrate(80);}
+  else if(kind==='late'){beep(620,220);if(navigator.vibrate)navigator.vibrate([80,60,80]);}
+  else{beep(200,400);if(navigator.vibrate)navigator.vibrate(300);}
+}
+
+/* ---------- Masuk ---------- */
+function showLogin(msg){
+  stopCam();$('app').hidden=true;$('loginBox').hidden=false;$('setup').hidden=!!api();
+  $('loginErr').hidden=!msg;$('loginErr').textContent=msg||'';$('p').value='';$('u').focus();
+}
+$('loginBox').onsubmit=function(e){
+  e.preventDefault();
+  if(!api()&&$('apiIn').value.trim()){try{localStorage.setItem('asd_api',$('apiIn').value.trim());}catch(x){}}
+  $('loginBtn').disabled=true;$('loginBtn').textContent='Memproses...';$('loginErr').hidden=true;
+  call('login',[$('u').value,$('p').value]).then(function(r){
+    if(r.user.pages.indexOf('scan')<0){$('loginBtn').disabled=false;$('loginBtn').textContent='Masuk';throw new Error('Akun ini tidak memiliki izin memindai.');}
+    TOKEN=r.token;try{sessionStorage.setItem('asd_tk',TOKEN);}catch(x){}
+    $('loginBtn').disabled=false;$('loginBtn').textContent='Masuk';enter(r.user);
+  }).catch(function(err){$('loginBtn').disabled=false;$('loginBtn').textContent='Masuk';showLogin(err.message);});
+};
+$('out').onclick=function(){var t=TOKEN;TOKEN=null;try{sessionStorage.removeItem('asd_tk');}catch(x){}call('logout',[t]).catch(function(){});showLogin('Anda sudah keluar.');};
+
+function enter(user){
+  $('loginBox').hidden=true;$('app').hidden=false;$('app').style.display='flex';
+  $('who').firstChild.nodeValue=user.nama+' ';$('sch').textContent=user.sekolah||'';
+  $('hist').innerHTML='';loadHist();startCam();
+}
+function loadHist(){
+  call('getScanHistory',[TOKEN]).then(function(rows){
+    $('hist').innerHTML=rows.map(function(r){return row(r.jam,r.nama,r.kelas,r.status);}).join('')||'<li style="color:#5E6B66">Belum ada pemindaian hari ini.</li>';
+  }).catch(sessionCheck);
+}
+function row(jam,nama,kelas,st){
+  var c=st==='Hadir'?'var(--hadir)':st==='Terlambat'?'var(--terlambat)':'var(--belum)';
+  return '<li><time>'+esc(jam)+'</time><span class="n">'+esc(nama)+'<br><small style="color:#5E6B66">'+esc(kelas)+'</small></span><span class="pill" style="--c:'+c+'">'+esc(st)+'</span></li>';
+}
+function sessionCheck(e){ if(/SESI_HABIS/.test(e.message)) showLogin('Sesi berakhir. Silakan masuk lagi.'); }
+
+/* ---------- Kamera dan pemindaian ---------- */
+function stopCam(){ if(loop){cancelAnimationFrame(loop);loop=null;} if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;} }
+function startCam(){
+  stopCam();
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){showResult('bad','Kamera tidak tersedia','Gunakan peramban terbaru lewat alamat https.');return;}
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720}},audio:false}).then(function(s){
+    stream=s;var v=$('v');v.srcObject=s;v.play();
+    navigator.mediaDevices.enumerateDevices().then(function(d){$('flip').hidden=d.filter(function(x){return x.kind==='videoinput';}).length<2;});
+    tick();
+  }).catch(function(e){showResult('bad','Kamera tidak dapat dibuka',e.name==='NotAllowedError'?'Izinkan akses kamera pada peramban, lalu muat ulang halaman.':'Periksa kamera perangkat.');});
+}
+$('flip').onclick=function(){facing=facing==='environment'?'user':'environment';startCam();};
+
+function tick(){
+  loop=requestAnimationFrame(tick);
+  var v=$('v');if(v.readyState<2||busy)return;
+  var c=$('cv'),w=Math.min(640,v.videoWidth),h=Math.round(v.videoHeight*w/v.videoWidth);
+  c.width=w;c.height=h;var x=c.getContext('2d',{willReadFrequently:true});x.drawImage(v,0,0,w,h);
+  var code=jsQR(x.getImageData(0,0,w,h).data,w,h,{inversionAttempts:'dontInvert'});
+  if(code&&code.data){
+    var now=Date.now();
+    if(code.data===last.p&&now-last.t<4000)return;
+    last={p:code.data,t:now};submit(code.data);
+  }
+}
+
+function showResult(kind,title,sub,name){
+  var r=$('res');r.className='result '+kind;
+  r.innerHTML='<div class="st">'+esc(title)+'</div>'+(name?'<div class="nm">'+esc(name)+'</div>':'')+'<div class="sb">'+esc(sub||'')+'</div>';
+}
+function submit(payload){
+  busy=true;showResult('','Memproses...','');
+  call('scanQR',[TOKEN,payload]).then(function(r){
+    if(r.ok){
+      var late=r.status==='Terlambat';
+      showResult(late?'late':'ok',r.status+' - pukul '+r.jam,r.siswa.kelas+' - NISN '+r.siswa.nisn,r.siswa.nama);feedback(late?'late':'ok');
+      $('hist').insertAdjacentHTML('afterbegin',row(r.jam,r.siswa.nama,r.siswa.kelas,r.status));
+    }else if(r.duplikat){
+      showResult('late','Sudah absen',r.pesan,r.siswa.nama);feedback('late');
+    }else{
+      showResult('bad','Tidak dapat dicatat',r.pesan);feedback('bad');
+    }
+  }).catch(function(e){
+    if(/SESI_HABIS/.test(e.message)){showLogin('Sesi berakhir. Silakan masuk lagi.');return;}
+    showResult('bad','Gagal',e.message);feedback('bad');last={p:'',t:0};
+  }).then(function(){setTimeout(function(){busy=false;},900);});
+}
+
+/* ---------- Mulai ---------- */
+(function(){
+  var t=null;try{t=sessionStorage.getItem('asd_tk');}catch(e){}
+  if(t&&api()){TOKEN=t;call('getSession',[t]).then(function(u){if(u.pages.indexOf('scan')<0)throw new Error('x');enter(u);}).catch(function(){showLogin();});}
+  else showLogin();
+})();
+</script>
+</body>
+</html>
